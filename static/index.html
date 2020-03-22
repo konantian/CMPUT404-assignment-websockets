@@ -22,7 +22,7 @@
     "/>
     <script src="json2.js"></script>
   </head> 
-  <body bgcolor="white" height="100%" width="100%"> 
+  <body bgcolor="#F0F8FF" height="100%" width="100%"> 
     <div id="debug"></div>
     <canvas id="c" width="100%" height="100%" style="-webkit-tap-highlight-color: transparent;"></canvas> 
 
@@ -36,6 +36,40 @@ var H = canvas.height = window.innerHeight-50;
 var wscounter = 0;
 var socket;
 
+
+// https://github.com/konantian/CMPUT404-assignment-ajax from assignment4
+function sendJSONXMLHTTPRequest(url, objects, callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.onreadystatechange = function () {
+        if (xhr.readyState==4) {
+            try {
+                if (xhr.status==200) {
+                    //XXX: parse some JSON from the request!
+                    //XXX: Pass the data to the callback!
+                    let result = JSON.parse(xhr.response);
+                    if(callback){
+                        callback(result);
+                    }
+                }
+            } 
+            catch(e) {
+                alert('Error: ' + e.name);
+            }
+        }
+    };
+    //XXX: POST to a URL
+    //XXX: set the mimetype and the accept headers!
+    // Remember to use application/json !
+    xhr.open('POST',url);
+    xhr.setRequestHeader('Content-Type',"application/json");
+    xhr.setRequestHeader('Accept','*/*');
+    if(objects){
+        xhr.send(JSON.stringify(objects));
+    }else{
+        xhr.send();
+    }
+}
+
 function debug(str) {
     var debugDiv = document.getElementById('debug');
     debugDiv.innerHTML = "" + str;
@@ -45,16 +79,17 @@ debug("Test");
 world = {};
 
 //XXX: TODO Make this prettier!
+// https://github.com/konantian/CMPUT404-assignment-ajax from assignment4
 function drawCircle(context,entity) {
     with(context) {
-        beginPath();                
+        beginPath();              
         lineWidth = 3;
         var x = entity["x"];
         var y = entity["y"];
         //moveTo(x,y);
         fillStyle = entity["colour"];
         strokeStyle = fillStyle;
-        arc(x, y, (entity["radius"])?entity["radius"]:50, 0, 2.0 * Math.PI, false);  
+        arc(x, y, (entity["radius"]) ? entity["radius"] : 10, 0, 2.0 * Math.PI, false);  
         stroke();                                
     }
 }
@@ -64,7 +99,7 @@ function prepEntity(entity) {
         entity["colour"] = "#FF0000";
     }
     if (!entity["radius"]) {
-        entity["radius"] = 50;
+        entity["radius"] = 10;
     }
     return entity;
 }
@@ -72,7 +107,7 @@ function prepEntity(entity) {
 function clearFrame() {
     with(context) {
 	moveTo(0,0);
-	fillStyle = "#000";
+	fillStyle = "#F0F8FF";
 	fillRect(0,0,W,H);
     }
 
@@ -125,6 +160,11 @@ function addEntity(entity, data) {
     world[entity] = data;
     drawNextFrame(); // (but should we?)
     //XXX: Send a XHTML Request that updates the entity you just modified!
+    let new_entity = {};
+    new_entity[entity] = data;
+    socket.send(JSON.stringify(new_entity));
+    let url = "/entity/".concat(entity);
+    sendJSONXMLHTTPRequest(url,data,null);
 }
 var counter = 0;
 function addEntityWithoutName(data) {
@@ -228,19 +268,45 @@ mouse = (function() {
     return self;
 })();
 
+//https://krazydad.com/tutorials/makecolors.php
+//https://www.w3schools.com/js/js_random.asp
+function byte2Hex(n){
+    var nybHexString = "0123456789ABCDEF";
+    return String(nybHexString.substr((n >> 4) & 0x0F,1)) + nybHexString.substr(n & 0x0F,1);
+}
+
+function RGB2Color(r,g,b){
+    return '#' + byte2Hex(r) + byte2Hex(g) + byte2Hex(b);
+}
+
+function chooseColor()
+{
+  center = 128;
+  width = 127;
+  frequency = Math.PI*2/100;
+  let i = Math.floor(Math.random() * 100); 
+  red   = Math.sin(frequency*i+2) * width + center;
+  green = Math.sin(frequency*i+0) * width + center;
+  blue  = Math.sin(frequency*i+4) * width + center;
+  return RGB2Color(red,green,blue);
+}
+
 // Add the application specific mouse listeners!
 //XXX: TODO Make these prettier!
+// https://github.com/konantian/CMPUT404-assignment-ajax from assignment4
 mouse.mousedowners.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'blue'});
+    addEntityWithoutName({'x':x,'y':y,'colour':chooseColor(),
+    'radius':5});
 });
 
 mouse.mouseuppers.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'red'});
+    addEntityWithoutName({'x':x,'y':y,'colour':chooseColor(),
+    'radius':5});
 });
 
 mouse.mousedraggers.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'green',
-                          'radius':10});
+    addEntityWithoutName({'x':x,'y':y,'colour':chooseColor(),
+    'radius':5});
 });
 
 
@@ -254,6 +320,13 @@ function wsSetup() {
     socket = new WebSocket(url);
     socket.onopen = function() {
         //XXX: TODO What are you going to do here?
+        let url= '/world'; 
+        sendJSONXMLHTTPRequest(url, null, (new_world) => {
+            for(let i in new_world){
+                world[i] = new_world[i];
+                drawNextFrame();
+            }
+        });
     };
     socket.onerror = function(msg) {
         debug("WebSocket Error:" + msg.data);
@@ -261,7 +334,12 @@ function wsSetup() {
     socket.onmessage = function(msg) {  
         try {
             debug("WebSocket Recv:" + msg.data);
-            //XXX: TODO What are you going to do here?            
+            //XXX: TODO What are you going to do here?    
+            let new_world = JSON.parse(msg.data);
+            for(let i in new_world){
+                world[i] = new_world[i];
+                drawNextFrame();
+            }   
         } catch (e) {
             alert("socket on message: " + e);
         }
